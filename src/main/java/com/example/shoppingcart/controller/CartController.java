@@ -8,7 +8,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/cart")
@@ -20,14 +19,8 @@ public class CartController {
         this.cartService = cartService;
     }
 
-    @GetMapping("/")
-    public Map<String, String> status() {
-        return Map.of("message", "service is up");
-    }
-
-
-    @PostMapping("/total")
-    public ResponseEntity<CartResponse> calculateTotal(@Valid @RequestBody CartRequest request) {
+    @PostMapping(value = "/total", headers = "X-API-VERSION=1")
+    public ResponseEntity<CartResponse> calculateTotalV1(@Valid @RequestBody CartRequest request) {
         BigDecimal total = cartService.calculateTotal(request);
         return ResponseEntity.ok(new CartResponse(total));
     }

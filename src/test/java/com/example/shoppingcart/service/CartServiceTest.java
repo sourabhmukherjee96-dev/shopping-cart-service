@@ -3,117 +3,86 @@ package com.example.shoppingcart.service;
 import com.example.shoppingcart.dto.CartItemDto;
 import com.example.shoppingcart.dto.CartRequest;
 import com.example.shoppingcart.dto.ClientDto;
+import com.example.shoppingcart.entity.PriceEntity;
 import com.example.shoppingcart.model.ClientType;
 import com.example.shoppingcart.model.ProductType;
+import com.example.shoppingcart.repository.PriceRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.*;
 
 class CartServiceTest {
 
-    private final CartService cartService = new CartService();
+    private PriceRepository priceRepository;
+    private CartService cartService;
 
-    private CartRequest buildIndividualRequest() {
+    @BeforeEach
+    void setUp() {
+        priceRepository = Mockito.mock(PriceRepository.class);
+        cartService = new CartService(priceRepository);
+    }
+
+    @Test
+    void calculateTotal_proHighRevenue_usesRepoPrices() {
         ClientDto client = new ClientDto();
-        client.setClientType(ClientType.INDIVIDUAL);
-        client.setClientId("IND-1");
-        client.setFirstName("Alice");
-        client.setLastName("Smith");
+        client.setClientType(ClientType.PROFESSIONAL);
+        client.setAnnualRevenue(11_000_000.0);
 
         CartItemDto item1 = new CartItemDto();
         item1.setProductType(ProductType.HIGH_END_PHONE);
-        item1.setQuantity(1);
+        item1.setQuantity(2);
 
         CartItemDto item2 = new CartItemDto();
-        item2.setProductType(ProductType.MID_RANGE_PHONE);
-        item2.setQuantity(1);
-
-        CartItemDto item3 = new CartItemDto();
-        item3.setProductType(ProductType.LAPTOP);
-        item3.setQuantity(1);
+        item2.setProductType(ProductType.LAPTOP);
+        item2.setQuantity(3);
 
         CartRequest request = new CartRequest();
         request.setClient(client);
-        request.setItems(List.of(item1, item2, item3));
-        return request;
-    }
+        request.setItems(List.of(item1, item2));
 
-    private CartRequest buildProHighRevenueRequest() {
-        ClientDto client = new ClientDto();
-        client.setClientType(ClientType.PROFESSIONAL);
-        client.setClientId("PRO-1");
-        client.setCompanyName("Big Corp");
-        client.setAnnualRevenue(11_000_000.0); // > 10M
+        // Mock repository to return prices matching the high-revenue tier
+        PriceEntity phonePrice = new PriceEntity("HIGH_END_PHONE", "PROFESSIONAL", 10000001L, BigDecimal.valueOf(1000));
+        PriceEntity laptopPrice = new PriceEntity("LAPTOP", "PROFESSIONAL", 10000001L, BigDecimal.valueOf(900));
 
-        CartItemDto highEnd = new CartItemDto();
-        highEnd.setProductType(ProductType.HIGH_END_PHONE);
-        highEnd.setQuantity(2);
-
-        CartItemDto laptop = new CartItemDto();
-        laptop.setProductType(ProductType.LAPTOP);
-        laptop.setQuantity(3);
-
-        CartRequest request = new CartRequest();
-        request.setClient(client);
-        request.setItems(List.of(highEnd, laptop));
-        return request;
-    }
-
-    private CartRequest buildProLowRevenueRequest() {
-        ClientDto client = new ClientDto();
-        client.setClientType(ClientType.PROFESSIONAL);
-        client.setClientId("PRO-2");
-        client.setCompanyName("Small Biz");
-        client.setAnnualRevenue(5_000_000.0); // <= 10M
-
-        CartItemDto midRange = new CartItemDto();
-        midRange.setProductType(ProductType.MID_RANGE_PHONE);
-        midRange.setQuantity(4);
-
-        CartItemDto laptop = new CartItemDto();
-        laptop.setProductType(ProductType.LAPTOP);
-        laptop.setQuantity(1);
-
-        CartRequest request = new CartRequest();
-        request.setClient(client);
-        request.setItems(List.of(midRange, laptop));
-        return request;
-    }
-
-    @Test
-    void calculateTotal_forIndividualClient_correctTotal() {
-        CartRequest request = buildIndividualRequest();
+        Mockito.when(priceRepository.findBestPrice(eq("HIGH_END_PHONE"), eq("PROFESSIONAL"), anyLong()))
+                .thenReturn(Optional.of(phonePrice));
+        Mockito.when(priceRepository.findBestPrice(eq("LAPTOP"), eq("PROFESSIONAL"), anyLong()))
+                .thenReturn(Optional.of(laptopPrice));
 
         BigDecimal total = cartService.calculateTotal(request);
 
-        // 1 * 1500 + 1 * 800 + 1 * 1200 = 1500 + 800 + 1200 = 3500
-        assertEquals(BigDecimal.valueOf(3500), total);
-    }
-
-    @Test
-    void calculateTotal_forProfessionalHighRevenue_correctTotal() {
-        CartRequest request = buildProHighRevenueRequest();
-
-        BigDecimal total = cartService.calculateTotal(request);
-
-        // High revenue professional:
-        // high-end: 1000, laptop: 900
-        // 2 * 1000 + 3 * 900 = 2000 + 2700 = 4700
+        // 2 * 1000 + 3 * 900 = 4700
         assertEquals(BigDecimal.valueOf(4700), total);
     }
 
     @Test
-    void calculateTotal_forProfessionalLowRevenue_correctTotal() {
-        CartRequest request = buildProLowRevenueRequest();
+    void calculateTotal_individual_usesRepoPrices() {
+        ClientDto client = new ClientDto();
+        client.setClientType(ClientType.INDIVIDUAL);
+
+        CartItemDto item = new CartItemDto();
+        item.setProductType(ProductType.MID_RANGE_PHONE);
+        item.setQuantity(4);
+
+        CartRequest request = new CartRequest();
+        request.setClient(client);
+        request.setItems(List.of(item));
+
+        PriceEntity midPrice = new PriceEntity("MID_RANGE_PHONE", "INDIVIDUAL", 0L, BigDecimal.valueOf(800));
+
+        Mockito.when(priceRepository.findBestPrice(eq("MID_RANGE_PHONE"), eq("INDIVIDUAL"), anyLong()))
+                .thenReturn(Optional.of(midPrice));
 
         BigDecimal total = cartService.calculateTotal(request);
 
-        // Low revenue professional:
-        // mid-range: 600, laptop: 1000
-        // 4 * 600 + 1 * 1000 = 2400 + 1000 = 3400
-        assertEquals(BigDecimal.valueOf(3400), total);
+        // 4 * 800 = 3200
+        assertEquals(BigDecimal.valueOf(3200), total);
     }
 }

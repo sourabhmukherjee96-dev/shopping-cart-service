@@ -2,73 +2,86 @@ package com.example.shoppingcart.service;
 
 import com.example.shoppingcart.dto.CartItemDto;
 import com.example.shoppingcart.dto.CartRequest;
+import com.example.shoppingcart.entity.PriceEntity;
+import com.example.shoppingcart.exception.ResourceNotFoundException;
 import com.example.shoppingcart.model.ClientType;
 import com.example.shoppingcart.model.ProductType;
+import com.example.shoppingcart.repository.PriceRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.EnumMap;
-import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 @Service
 public class CartService {
 
-    private static final BigDecimal TEN_MILLION = BigDecimal.valueOf(10_000_000);
+    private final PriceRepository priceRepository;
 
-
-    private static final Map<ProductType, BigDecimal> INDIVIDUAL_PRICES = new EnumMap<>(ProductType.class);
-
-    private static final Map<ProductType, BigDecimal> PRO_HIGH_REVENUE_PRICES = new EnumMap<>(ProductType.class);
-
-    private static final Map<ProductType, BigDecimal> PRO_LOW_REVENUE_PRICES = new EnumMap<>(ProductType.class);
-
-    static {
-
-        INDIVIDUAL_PRICES.put(ProductType.HIGH_END_PHONE, BigDecimal.valueOf(1500));
-        INDIVIDUAL_PRICES.put(ProductType.MID_RANGE_PHONE, BigDecimal.valueOf(800));
-        INDIVIDUAL_PRICES.put(ProductType.LAPTOP, BigDecimal.valueOf(1200));
-
-
-        PRO_HIGH_REVENUE_PRICES.put(ProductType.HIGH_END_PHONE, BigDecimal.valueOf(1000));
-        PRO_HIGH_REVENUE_PRICES.put(ProductType.MID_RANGE_PHONE, BigDecimal.valueOf(550));
-        PRO_HIGH_REVENUE_PRICES.put(ProductType.LAPTOP, BigDecimal.valueOf(900));
-
-
-        PRO_LOW_REVENUE_PRICES.put(ProductType.HIGH_END_PHONE, BigDecimal.valueOf(1150));
-        PRO_LOW_REVENUE_PRICES.put(ProductType.MID_RANGE_PHONE, BigDecimal.valueOf(600));
-        PRO_LOW_REVENUE_PRICES.put(ProductType.LAPTOP, BigDecimal.valueOf(1000));
+    public CartService(PriceRepository priceRepository) {
+        this.priceRepository = priceRepository;
     }
 
+    @Transactional(readOnly = true)
     public BigDecimal calculateTotal(CartRequest request) {
-        ClientType type = request.getClient().getClientType();
-        Map<ProductType, BigDecimal> priceMap;
+        // Basic null-safety: controller is expected to validate, but service defends as well.
+        Objects.requireNonNull(request, "CartRequest must not be null");
+        Objects.requireNonNull(request.getClient(), "Client information is required");
+        Objects.requireNonNull(request.getItems(), "Cart items are required");
 
-        if (type == ClientType.INDIVIDUAL) {
-            priceMap = INDIVIDUAL_PRICES;
-        } else {
-            BigDecimal revenue = BigDecimal.ZERO;
-            if (request.getClient().getAnnualRevenue() != null) {
-                revenue = BigDecimal.valueOf(request.getClient().getAnnualRevenue());
-            }
+        // Extract client type
+        ClientType clientType = Optional.ofNullable(request.getClient())
+                .map(c -> c.getClientType())
+                .orElseThrow(() -> new IllegalArgumentException("ClientType is required"));
 
-            if (revenue.compareTo(TEN_MILLION) > 0) {
-                priceMap = PRO_HIGH_REVENUE_PRICES;
-            } else {
-                priceMap = PRO_LOW_REVENUE_PRICES;
-            }
+        // Extract revenue (default 0 if not provided)
+        long revenue = Optional.ofNullable(request.getClient())
+                .map(c -> c.getAnnualRevenue())
+                .map(Double::longValue)
+                .orElse(0L);
+
+        // Stream through items: validate, lookup price, compute line total, then sum
+        return request.getItems().stream()
+                .peek(this::validateItem) // validate each item (throws IllegalArgumentException if invalid)
+                .map(item -> calculateLineTotal(item, clientType, revenue))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Validate that the cart item contains a product and a positive quantity.
+     */
+    private void validateItem(CartItemDto item) {
+        if (item == null) {
+            throw new IllegalArgumentException("Cart item must not be null");
         }
-
-        BigDecimal total = BigDecimal.ZERO;
-
-        for (CartItemDto item : request.getItems()) {
-            BigDecimal unitPrice = priceMap.get(item.getProductType());
-            if (unitPrice == null) {
-                throw new IllegalArgumentException("No price defined for product: " + item.getProductType());
-            }
-            BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(item.getQuantity()));
-            total = total.add(lineTotal);
+        if (item.getProductType() == null) {
+            throw new IllegalArgumentException("Product type is required for each cart item");
         }
+        if (item.getQuantity() <= 0) {
+            throw new IllegalArgumentException("Quantity must be a positive integer");
+        }
+    }
 
-        return total;
+    /**
+     * For a single cart item, find the unit price from DB and return unitPrice * quantity.
+     * Throws ResourceNotFoundException if no DB price row is found.
+     */
+    private BigDecimal calculateLineTotal(CartItemDto item, ClientType clientType, long revenue) {
+        ProductType product = item.getProductType();
+
+        Optional<PriceEntity> optPrice = priceRepository.findBestPrice(
+                product.name(),
+                clientType.name(),
+                revenue
+        );
+
+        BigDecimal unitPrice = optPrice
+                .map(PriceEntity::getPrice)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        String.format("No price found for product=%s, clientType=%s, revenue=%d",
+                                product.name(), clientType.name(), revenue)));
+
+        return unitPrice.multiply(BigDecimal.valueOf(item.getQuantity()));
     }
 }
