@@ -48,9 +48,7 @@ public class CartService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    /**
-     * Validate that the cart item contains a product and a positive quantity.
-     */
+    
     private void validateItem(CartItemDto item) {
         if (item == null) {
             throw new IllegalArgumentException("Cart item must not be null");
@@ -63,10 +61,7 @@ public class CartService {
         }
     }
 
-    /**
-     * For a single cart item, find the unit price from DB and return unitPrice * quantity.
-     * Throws ResourceNotFoundException if no DB price row is found.
-     */
+    
     private BigDecimal calculateLineTotal(CartItemDto item, ClientType clientType, long revenue) {
         ProductType product = item.getProductType();
 
