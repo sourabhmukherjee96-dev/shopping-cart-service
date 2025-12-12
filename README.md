@@ -9,8 +9,30 @@ and the specific products and quantities in the cart.
 
 Architecture and Design
 
- Database-Driven Pricing Model
+Project Structure:
 
+ src/main/java/com/example/shoppingcart
+├── controller
+│   └── CartController.java
+├── service
+│   └── CartService.java
+├── repository
+│   └── PriceRepository.java
+├── entity
+│   └── PriceEntity.java
+├── exception
+│   ├── GlobalExceptionHandler.java
+│   └── ResourceNotFoundException.java
+├── dto
+│   ├── CartRequest.java
+│   ├── CartResponse.java
+│   ├── ClientDto.java
+│   └── CartItemDto.java
+└── ShoppingCartApplication.java
+
+----------------------------------------------------------------------------------
+
+ Database-Driven Pricing Model
  price table, stores all pricing rules.
 
  Price Table Structure
@@ -109,6 +131,9 @@ Exception handling is centralized using a @ControllerAdvice global handler to en
 -----
 
  Local Development & Inspection
+
+
+
 
  H2 Console: The service uses an in-memory H2 Database for local development and testing, initialized with pricing data from data.sql.
 
